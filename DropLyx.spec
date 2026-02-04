@@ -4,14 +4,7 @@
 a = Analysis(
     ['DropLyx.py'],
     pathex=[],
-    binaries=[
-        ('C:\\ProgramData\\miniconda3\\Library\\bin\\libexpat.dll', '.'),
-        ('C:\\ProgramData\\miniconda3\\Library\\bin\\liblzma.dll', '.'),
-        ('C:\\ProgramData\\miniconda3\\Library\\bin\\libbz2.dll', '.'),
-        ('C:\\ProgramData\\miniconda3\\Library\\bin\\ffi.dll', '.'),
-        ('C:\\ProgramData\\miniconda3\\Library\\bin\\tcl86t.dll', '.'),
-        ('C:\\ProgramData\\miniconda3\\Library\\bin\\tk86t.dll', '.'),
-    ],
+    binaries=[],
     datas=[
         ('lyx_logo_small.png', '.'),
     ],
