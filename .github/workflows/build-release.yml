@@ -1,0 +1,143 @@
+name: Build Multi-Platform Releases
+
+on:
+  push:
+    tags:
+      - 'v*'  # Triggers on version tags like v1.0.0
+  workflow_dispatch:  # Allows manual trigger
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build Windows executable
+        run: pyinstaller DropLyx.spec --clean --noconfirm
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DropLyx-Windows
+          path: dist/DropLyx.exe
+          retention-days: 30
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libappindicator3-dev
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build Linux executable
+        run: pyinstaller DropLyx_linux.spec --clean --noconfirm
+
+      - name: Make executable
+        run: chmod +x dist/DropLyx
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DropLyx-Linux
+          path: dist/DropLyx
+          retention-days: 30
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install system dependencies
+        run: |
+          brew install pygobject3 gtk+3
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build macOS app
+        run: pyinstaller DropLyx_macos.spec --clean --noconfirm
+
+      - name: Create DMG (optional)
+        run: |
+          brew install create-dmg
+          create-dmg \
+            --volname "DropLyx Installer" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --icon "DropLyx.app" 175 120 \
+            --hide-extension "DropLyx.app" \
+            --app-drop-link 425 120 \
+            "DropLyx-macOS.dmg" \
+            "dist/DropLyx.app"
+
+      - name: Upload macOS artifact (app)
+        uses: actions/upload-artifact@v4
+        with:
+          name: DropLyx-macOS-app
+          path: dist/DropLyx.app
+          retention-days: 30
+
+      - name: Upload macOS artifact (DMG)
+        uses: actions/upload-artifact@v4
+        with:
+          name: DropLyx-macOS-dmg
+          path: DropLyx-macOS.dmg
+          retention-days: 30
+
+  create-release:
+    needs: [build-windows, build-linux, build-macos]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            DropLyx-Windows/DropLyx.exe
+            DropLyx-Linux/DropLyx
+            DropLyx-macOS-dmg/DropLyx-macOS.dmg
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

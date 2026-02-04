@@ -1,0 +1,60 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+*.spec.bak
+
+# PyInstaller
+build/
+dist/
+build_*/
+dist_*/
+*.manifest
+*.spec~
+
+# Virtual Environment
+venv/
+venv_linux/
+venv_macos/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Project specific
+.claude/
+*.lock
+*.baseline
+*.remote_version
+*.local_version
+*.pre_merge_backup
+*.remote_backup
+*.local_backup
+.lyx_sync_config.json
+
+# Test files
+newfile*.lyx
+test*.lyx
+
+# Windows
+Thumbs.db
+desktop.ini
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+*.dmg
+*.app
+lyx_icon.iconset/
+*.icns
