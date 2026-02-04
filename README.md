@@ -2,6 +2,8 @@
 
 **Real-time collaborative editing for LyX files via Dropbox**
 
+**Author:** Johannes Emmerling
+
 DropLyx is a lightweight system tray application that enables collaborative editing of LyX documents through Dropbox. It provides file locking, conflict detection, and automatic merging of changes when multiple users edit the same document.
 
 ![DropLyx Icon](lyx-icon.png)
