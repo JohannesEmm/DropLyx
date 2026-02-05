@@ -21,7 +21,7 @@ except:
 CONFIG_FILE = Path.home() / ".lyx_sync_config.json"
 LOCK_SUFFIX = ".lock"
 BASELINE_SUFFIX = ".baseline"
-POLL_INTERVAL = 3
+POLL_INTERVAL = 1  # Check every 1 second for faster response
 
 state = {
     "watch_dirs": [],
@@ -33,6 +33,9 @@ state = {
     "running": True,
     "icon": None,
     "menu_needs_update": False,
+    "window_cache": [],  # Cache of windows to avoid slow getAllWindows()
+    "window_cache_time": 0,  # Last time windows were cached
+    "window_cache_ttl": 5,  # Cache windows for 5 seconds
 }
 
 
@@ -113,97 +116,111 @@ def get_lyx_open_files():
     open_files = []
 
     if sys.platform == "win32":
-        # On Windows, check window titles which contain the filename
-        try:
-            import pygetwindow as gw
-            # Get all windows
-            windows = gw.getAllWindows()
-            for window in windows:
-                title = window.title
-                # LyX windows have titles like "filename.lyx - LyX" or "newfile1.lyx (~\CMCC Dropbox\...) - LyX"
-                if title and "LyX" in title and ".lyx" in title:
-                    # Extract the filename from the title
-                    # Title formats:
-                    # "newfile1.lyx - LyX"
-                    # "newfile1.lyx (~\CMCC Dropbox\...\folder) - LyX"
-                    parts = title.split(" - LyX")[0]  # Get everything before " - LyX"
-
-                    # Check if there's a path in parentheses
-                    if "(" in parts and ")" in parts:
-                        # Extract filename and folder path
-                        # Format: "newfile1.lyx (~\path\to\folder)"
-                        filename = parts.split("(")[0].strip()
-                        folder_path = parts[parts.find("(")+1:parts.find(")")]
-
-                        # Handle Windows path starting with ~\
-                        if folder_path.startswith("~\\"):
-                            # Remove ~\ and try to find the file
-                            relative_folder = folder_path[2:]  # Remove ~\
-
-                            # Construct full relative path with filename
-                            relative_path = relative_folder + "\\" + filename
-
-                            # Try multiple possible base paths
-                            possible_bases = [
-                                Path.home(),  # C:\Users\Username
-                                Path.home().parent,  # C:\Users
-                                Path("C:\\"),  # C:\
-                            ]
-
-                            # Also check if any watched directory contains this path
-                            for watch_dir in state.get("watch_dirs", []):
-                                possible_bases.append(Path(watch_dir).parent)
-
-                            filepath = None
-                            for base in possible_bases:
-                                test_path = base / relative_path
-                                if test_path.exists() and test_path.suffix == ".lyx":
-                                    filepath = test_path
-                                    break
-
-                            if filepath:
-                                open_files.append(str(filepath.resolve()))
-                        else:
-                            # Regular absolute path (folder)
-                            filepath = Path(folder_path) / filename
-                            if filepath.exists() and filepath.suffix == ".lyx":
-                                open_files.append(str(filepath.resolve()))
-                    else:
-                        # Just filename, need to search in watched directories
-                        filename = parts.strip()
-                        if filename.endswith(".lyx"):
-                            # Search for this file in watched directories
-                            for watch_dir in state.get("watch_dirs", []):
-                                for lyx_file in Path(watch_dir).rglob(filename):
-                                    if lyx_file.is_file():
-                                        open_files.append(str(lyx_file.resolve()))
-                                        break
-        except Exception as e:
-            # Fallback: try command line approach
-            pass
-
-        # Also try command line and open files as fallback
-        for proc in psutil.process_iter(["name", "cmdline", "open_files"]):
+        # Method 1: Fast process-based detection (check command line and open files)
+        # This is much faster than window enumeration
+        for proc in psutil.process_iter(["name", "cmdline"]):
             try:
                 proc_name = proc.info.get("name", "")
                 if proc_name and "lyx" in proc_name.lower():
-                    # Check command line
+                    # Check command line arguments for .lyx files
                     cmdline = proc.info.get("cmdline") or []
                     for arg in cmdline:
                         if arg and isinstance(arg, str) and arg.endswith(".lyx"):
                             filepath = Path(arg)
                             if filepath.exists():
-                                open_files.append(str(filepath.resolve()))
+                                # Check if file is in one of our watched directories
+                                for watch_dir in state.get("watch_dirs", []):
+                                    try:
+                                        filepath.resolve().relative_to(Path(watch_dir).resolve())
+                                        open_files.append(str(filepath.resolve()))
+                                        break
+                                    except ValueError:
+                                        # Not in this watched directory
+                                        continue
 
-                    # Check open files
+                    # Method 2: Check open file handles (requires elevated privileges, might fail)
                     try:
                         open_file_objs = proc.open_files()
                         for f in open_file_objs:
                             if hasattr(f, 'path') and f.path.endswith(".lyx"):
-                                open_files.append(f.path)
+                                filepath = Path(f.path)
+                                # Check if in watched directories
+                                for watch_dir in state.get("watch_dirs", []):
+                                    try:
+                                        filepath.resolve().relative_to(Path(watch_dir).resolve())
+                                        open_files.append(f.path)
+                                        break
+                                    except ValueError:
+                                        continue
                     except (psutil.AccessDenied, AttributeError):
                         pass
             except (psutil.NoSuchProcess, psutil.AccessDenied, Exception):
+                pass
+
+        # Method 3: Window title detection (SLOW fallback - only if nothing found yet)
+        # Only use this if process-based detection found nothing
+        if not open_files:
+            try:
+                import pygetwindow as gw
+
+                # Use cached windows if cache is fresh (< 5 seconds old)
+                current_time = time.time()
+                if (current_time - state["window_cache_time"]) < state["window_cache_ttl"]:
+                    windows = state["window_cache"]
+                else:
+                    # Get all windows (this is VERY slow, so we cache it)
+                    windows = gw.getAllWindows()
+                    state["window_cache"] = windows
+                    state["window_cache_time"] = current_time
+
+                for window in windows:
+                    title = window.title
+                    # LyX windows have titles like "filename.lyx - LyX" or "newfile1.lyx (~\CMCC Dropbox\...) - LyX"
+                    if title and "LyX" in title and ".lyx" in title:
+                        # Extract the filename from the title
+                        parts = title.split(" - LyX")[0]
+
+                        # Check if there's a path in parentheses
+                        if "(" in parts and ")" in parts:
+                            filename = parts.split("(")[0].strip()
+                            folder_path = parts[parts.find("(")+1:parts.find(")")]
+
+                            # Handle Windows path starting with ~\
+                            if folder_path.startswith("~\\"):
+                                relative_folder = folder_path[2:]
+                                relative_path = relative_folder + "\\" + filename
+
+                                possible_bases = [
+                                    Path.home(),
+                                    Path.home().parent,
+                                    Path("C:\\"),
+                                ]
+
+                                for watch_dir in state.get("watch_dirs", []):
+                                    possible_bases.append(Path(watch_dir).parent)
+
+                                filepath = None
+                                for base in possible_bases:
+                                    test_path = base / relative_path
+                                    if test_path.exists() and test_path.suffix == ".lyx":
+                                        filepath = test_path
+                                        break
+
+                                if filepath:
+                                    open_files.append(str(filepath.resolve()))
+                            else:
+                                filepath = Path(folder_path) / filename
+                                if filepath.exists() and filepath.suffix == ".lyx":
+                                    open_files.append(str(filepath.resolve()))
+                        else:
+                            filename = parts.strip()
+                            if filename.endswith(".lyx"):
+                                for watch_dir in state.get("watch_dirs", []):
+                                    for lyx_file in Path(watch_dir).rglob(filename):
+                                        if lyx_file.is_file():
+                                            open_files.append(str(lyx_file.resolve()))
+                                            break
+            except Exception as e:
                 pass
     else:
         # Linux/Mac: use open files
@@ -472,10 +489,17 @@ def update_tray():
 
 def monitor_loop():
     prev_locks = {}
-    while state["running"]:
-        time.sleep(POLL_INTERVAL)
-        open_files = get_lyx_open_files()
+    debug_log = Path.home() / "droplyx_timing.log"
 
+    while state["running"]:
+        loop_start = time.time()
+        time.sleep(POLL_INTERVAL)
+
+        detect_start = time.time()
+        open_files = get_lyx_open_files()
+        detect_time = time.time() - detect_start
+
+        lock_start = time.time()
         for f in open_files:
             if f not in state["my_locks"]:
                 create_lock(f)
@@ -483,6 +507,14 @@ def monitor_loop():
         for f in list(state["my_locks"]):
             if f not in open_files:
                 remove_lock(f)
+        lock_time = time.time() - lock_start
+
+        total_time = time.time() - loop_start
+
+        # Log timing every 10 loops
+        if int(time.time()) % 10 < 1:
+            with open(debug_log, 'a') as f:
+                f.write(f"[{datetime.now().strftime('%H:%M:%S')}] Loop: {total_time:.2f}s (detect: {detect_time:.2f}s, locks: {lock_time:.2f}s) - Files: {len(open_files)}\n")
 
         state["locked_files"] = scan_all_locks()
 
