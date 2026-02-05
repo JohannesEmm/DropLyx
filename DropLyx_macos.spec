@@ -6,7 +6,7 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[
-        ('lyx_logo_small.png', '.'),
+        ('DropLyx_logo.png', '.'),
     ],
     hiddenimports=[],
     hookspath=[],
