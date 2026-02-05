@@ -6,7 +6,7 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[
-        ('lyx_logo_small.png', '.'),
+        ('DropLyx_logo.png', '.'),
     ],
     hiddenimports=[],
     hookspath=[],
@@ -35,5 +35,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='lyx_icon.ico',
+    icon='DropLyx_icon.ico',
 )

@@ -59,40 +59,62 @@ def get_resource_path(relative_path):
 
 def create_icon(color="lightblue"):
     size = 64
-    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
     colors = {
-        "lightblue": (52, 152, 219),  # Light blue - nothing open
-        "green": (46, 204, 113),       # Green - editing files
-        "red": (231, 76, 60),          # Red - locked by others
-        "orange": (243, 156, 18)       # Orange - warning
+        "lightblue": (52, 152, 219, 255),  # Light blue - nothing open
+        "green": (46, 204, 113, 255),       # Green - editing files
+        "red": (231, 76, 60, 255),          # Red - locked by others
+        "orange": (243, 156, 18, 255)       # Orange - warning
     }
-    c = colors.get(color, colors["lightblue"])
+    status_color = colors.get(color, colors["lightblue"])
 
-    # Draw colored circle background
-    draw.ellipse([2, 2, size - 2, size - 2], fill=c, outline=(255, 255, 255), width=2)
-
-    # Try to load and overlay the LyX logo
+    # Try to load the DropLyx logo
     try:
-        logo_path = get_resource_path("lyx_logo_small.png")
-        logo = Image.open(logo_path)
-        # Resize logo to fit in the circle
-        logo_size = int(size * 0.7)
-        logo = logo.resize((logo_size, logo_size), Image.Resampling.LANCZOS)
-        # Calculate position to center the logo
-        logo_x = (size - logo_size) // 2
-        logo_y = (size - logo_size) // 2
-        # Composite the logo onto the colored circle
-        img.paste(logo, (logo_x, logo_y), logo)
+        logo_path = get_resource_path("DropLyx_logo.png")
+        img = Image.open(logo_path)
+
+        # Convert to RGBA if needed
+        if img.mode != 'RGBA':
+            img = img.convert('RGBA')
+
+        # Resize to icon size
+        img = img.resize((size, size), Image.Resampling.LANCZOS)
+
+        # Create a copy to draw on
+        img = img.copy()
+        draw = ImageDraw.Draw(img)
+
+        # Add a colored status indicator circle in the bottom-right corner
+        indicator_size = 20
+        indicator_x = size - indicator_size - 2
+        indicator_y = size - indicator_size - 2
+
+        # Draw the status indicator with a white border
+        draw.ellipse(
+            [indicator_x - 2, indicator_y - 2,
+             indicator_x + indicator_size + 2, indicator_y + indicator_size + 2],
+            fill=(255, 255, 255, 255),  # White border
+            outline=None
+        )
+        draw.ellipse(
+            [indicator_x, indicator_y,
+             indicator_x + indicator_size, indicator_y + indicator_size],
+            fill=status_color,
+            outline=None
+        )
+
+        return img
+
     except Exception as e:
-        # Fallback to text if logo not found
+        # Fallback: create simple colored circle with text
+        img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        draw.ellipse([2, 2, size - 2, size - 2], fill=status_color, outline=(255, 255, 255), width=2)
         try:
             font = ImageFont.truetype("arial.ttf", 28)
         except:
             font = ImageFont.load_default()
-        draw.text((20, 18), "L", fill=(255, 255, 255), font=font)
-
-    return img
+        draw.text((20, 18), "D", fill=(255, 255, 255), font=font)
+        return img
 
 
 def save_config():
