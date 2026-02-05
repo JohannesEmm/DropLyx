@@ -98,6 +98,7 @@ See [BUILD_MACOS.md](BUILD_MACOS.md) for detailed macOS compilation instructions
    - Open and edit LyX files as usual
    - DropLyx automatically creates locks
    - If someone else edited the file, you'll get a notification
+   - **IMPORTANT**: If LyX shows "Document externally modified", click **"Ignore"** or **"No"** - do NOT reload! DropLyx will merge changes automatically when you close the file.
 
 4. **Auto-Merge**:
    - When you close a file, DropLyx automatically merges remote changes
