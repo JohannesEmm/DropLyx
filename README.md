@@ -36,7 +36,10 @@ DropLyx is a lightweight system tray application that enables collaborative edit
 
 ### Option 1: Download Pre-built Binary
 
-**Windows:** Download `DropLyx.exe` from the [Releases](https://github.com/yourusername/droplyx/releases) page.
+**Windows:**
+1. Download the `DropLyx-windows.zip` file from the [Releases](https://github.com/yourusername/droplyx/releases) page.
+2. Extract the entire folder to your desired location.
+3. Run `DropLyx.exe` from the extracted folder.
 
 **Linux:** Download the Linux binary or AppImage from the [Releases](https://github.com/yourusername/droplyx/releases) page.
 
@@ -153,7 +156,7 @@ A conflict occurs when:
 ## Limitations
 
 - **Platform-Specific File Detection**:
-  - Windows: Uses pygetwindow for window title parsing
+  - Windows: Uses Win32 API for window title parsing
   - Linux: Uses /proc filesystem and open file descriptors
 - **LyX Specific**: Designed specifically for LyX files
 - **Dropbox Sync**: Relies on Dropbox (or similar sync service) to sync files between machines
@@ -180,7 +183,6 @@ A conflict occurs when:
 - `pystray`: System tray integration
 - `psutil`: Process monitoring
 - `plyer`: Desktop notifications
-- `pygetwindow`: Window title parsing (Windows)
 
 ## Contributing
 
