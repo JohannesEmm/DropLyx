@@ -13,6 +13,7 @@ DropLyx is a lightweight system tray application that enables collaborative edit
 - **File Locking**: Prevents conflicts by locking files while you're editing them
 - **Real-time Monitoring**: Automatically detects when you open/close LyX files
 - **Smart Auto-Merge**: Automatically merges non-conflicting changes from multiple editors
+- **Dropbox Conflict Resolution**: Automatically detects and merges Dropbox conflict files using three-way merge
 - **Visual Status Indicators**:
   - Light Blue: Monitoring, no files open
   - Green: You're editing files (all good)
@@ -31,6 +32,7 @@ DropLyx is a lightweight system tray application that enables collaborative edit
    - Local: Your changes
    - Remote: Changes from other users
 5. **Auto-Merge**: If changes don't conflict, they're automatically merged. Otherwise, backup files are created for manual resolution.
+6. **Dropbox Conflict Handling**: If Dropbox creates its own conflict files (e.g., "file (conflicted copy 2024-01-15).lyx"), DropLyx automatically detects them, performs a three-way merge with the original file, and removes the conflict file if successful.
 
 ## Installation
 

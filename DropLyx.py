@@ -2,6 +2,7 @@ import os
 import sys
 import time
 import json
+import re
 import threading
 import shutil
 import hashlib
@@ -30,6 +31,7 @@ state = {
     "file_baselines": {},  # {filepath: baseline_path}
     "file_hashes": {},  # {filepath: last_known_hash}
     "pending_merges": {},  # {filepath: remote_backup_path}
+    "processed_conflicts": set(),  # Track processed Dropbox conflict files
     "running": True,
     "icon": None,
     "menu_needs_update": False,
@@ -291,6 +293,118 @@ def remove_baseline(filepath):
     state["file_hashes"].pop(filepath, None)
 
 
+def is_dropbox_conflict_file(filepath):
+    """
+    Check if a file is a Dropbox conflict file.
+    Dropbox creates files with patterns like:
+    - filename (conflicted copy 2024-01-15).lyx
+    - filename (User's conflicted copy 2024-01-15).lyx
+    """
+    filename = Path(filepath).name
+    # Match Dropbox conflict patterns
+    pattern = r'\(.*conflicted copy.*\d{4}-\d{2}-\d{2}.*\)\.lyx$'
+    return bool(re.search(pattern, filename, re.IGNORECASE))
+
+
+def get_original_file_from_conflict(conflict_filepath):
+    """
+    Get the original file path from a Dropbox conflict file.
+    E.g., "file (conflicted copy 2024-01-15).lyx" -> "file.lyx"
+    """
+    filepath = Path(conflict_filepath)
+    filename = filepath.name
+
+    # Remove the conflict pattern
+    pattern = r'\s*\(.*conflicted copy.*\d{4}-\d{2}-\d{2}.*\)'
+    original_name = re.sub(pattern, '', filename, flags=re.IGNORECASE)
+
+    original_path = filepath.parent / original_name
+    return str(original_path) if original_path.exists() else None
+
+
+def handle_dropbox_conflict(conflict_filepath):
+    """
+    Handle a Dropbox conflict file by performing a three-way merge.
+    Returns True if successfully merged and removed conflict file.
+    """
+    original_filepath = get_original_file_from_conflict(conflict_filepath)
+    if not original_filepath:
+        return False
+
+    # Check if we have a baseline for this file
+    baseline_path = Path(f"{original_filepath}{BASELINE_SUFFIX}")
+    if not baseline_path.exists():
+        # No baseline, can't do three-way merge
+        # Just notify the user
+        notify("Dropbox Conflict Detected",
+               f"{Path(conflict_filepath).name}\n"
+               f"Please manually resolve the conflict.")
+        return False
+
+    try:
+        # Read all three versions
+        with open(baseline_path, 'r', encoding='utf-8', errors='ignore') as f:
+            baseline_lines = f.readlines()
+        with open(original_filepath, 'r', encoding='utf-8', errors='ignore') as f:
+            local_lines = f.readlines()
+        with open(conflict_filepath, 'r', encoding='utf-8', errors='ignore') as f:
+            remote_lines = f.readlines()
+
+        # Perform three-way merge
+        has_conflicts, conflict_line_nums = detect_conflicts(baseline_lines, local_lines, remote_lines)
+        merged_lines = perform_three_way_merge(baseline_lines, local_lines, remote_lines)
+
+        if has_conflicts:
+            # Save backups for manual resolution
+            local_backup = Path(f"{original_filepath}.local_backup")
+            remote_backup = Path(f"{original_filepath}.remote_backup")
+            pre_merge_backup = Path(f"{original_filepath}.pre_merge_backup")
+
+            shutil.copy2(original_filepath, local_backup)
+            shutil.copy2(conflict_filepath, remote_backup)
+            shutil.copy2(original_filepath, pre_merge_backup)
+
+            # Write the merged version (with conflict markers if any)
+            with open(original_filepath, 'w', encoding='utf-8') as f:
+                f.writelines(merged_lines)
+
+            notify("Dropbox Conflict - Manual Resolution Needed",
+                   f"{Path(original_filepath).name}\n"
+                   f"Conflicts detected at lines: {', '.join(map(str, conflict_line_nums[:5]))}\n"
+                   f"Backup files created for manual resolution.")
+
+            # Remove the Dropbox conflict file
+            try:
+                Path(conflict_filepath).unlink()
+            except:
+                pass
+
+            return False
+        else:
+            # No conflicts, auto-merge successful
+            with open(original_filepath, 'w', encoding='utf-8') as f:
+                f.writelines(merged_lines)
+
+            # Remove the Dropbox conflict file
+            try:
+                Path(conflict_filepath).unlink()
+                notify("Dropbox Conflict Auto-Merged",
+                       f"{Path(original_filepath).name}\n"
+                       f"Changes from conflict file merged successfully.")
+                return True
+            except Exception as e:
+                notify("Dropbox Conflict - Merge Warning",
+                       f"{Path(original_filepath).name}\n"
+                       f"Merged but couldn't remove conflict file: {str(e)}")
+                return False
+
+    except Exception as e:
+        notify("Dropbox Conflict - Merge Error",
+               f"{Path(conflict_filepath).name}\n"
+               f"Error during merge: {str(e)}")
+        return False
+
+
 def detect_conflicts(baseline_lines, local_lines, remote_lines):
     """
     Detect conflicts between local and remote changes.
@@ -310,6 +424,43 @@ def detect_conflicts(baseline_lines, local_lines, remote_lines):
                 conflicts.append(i)
 
     return len(conflicts) > 0, conflicts
+
+
+def perform_three_way_merge(baseline_lines, local_lines, remote_lines):
+    """
+    Perform a three-way merge of baseline, local, and remote versions.
+    Returns: merged_lines (list of strings)
+    """
+    merged_lines = []
+    max_len = max(len(baseline_lines), len(local_lines), len(remote_lines))
+
+    for i in range(max_len):
+        baseline_line = baseline_lines[i] if i < len(baseline_lines) else None
+        local_line = local_lines[i] if i < len(local_lines) else None
+        remote_line = remote_lines[i] if i < len(remote_lines) else None
+
+        # Decide which line to use
+        if local_line == remote_line:
+            # Both made same change or both unchanged
+            if local_line is not None:
+                merged_lines.append(local_line)
+        elif local_line == baseline_line:
+            # Only remote changed this line
+            if remote_line is not None:
+                merged_lines.append(remote_line)
+        elif remote_line == baseline_line:
+            # Only local changed this line
+            if local_line is not None:
+                merged_lines.append(local_line)
+        else:
+            # Both changed but we already checked for conflicts
+            # This shouldn't happen, but default to local
+            if local_line is not None:
+                merged_lines.append(local_line)
+            elif remote_line is not None:
+                merged_lines.append(remote_line)
+
+    return merged_lines
 
 
 def merge_files(filepath, local_version_path=None):
@@ -369,34 +520,7 @@ def merge_files(filepath, local_version_path=None):
                     f'Backups created:\n{backup_remote.name}\n{backup_local.name}')
 
         # No conflicts - perform merge
-        merged_lines = []
-        max_len = max(len(baseline_lines), len(local_lines), len(remote_lines))
-
-        for i in range(max_len):
-            baseline_line = baseline_lines[i] if i < len(baseline_lines) else None
-            local_line = local_lines[i] if i < len(local_lines) else None
-            remote_line = remote_lines[i] if i < len(remote_lines) else None
-
-            # Decide which line to use
-            if local_line == remote_line:
-                # Both made same change or both unchanged
-                if local_line is not None:
-                    merged_lines.append(local_line)
-            elif local_line == baseline_line:
-                # Only remote changed this line
-                if remote_line is not None:
-                    merged_lines.append(remote_line)
-            elif remote_line == baseline_line:
-                # Only local changed this line
-                if local_line is not None:
-                    merged_lines.append(local_line)
-            else:
-                # Both changed but we already checked for conflicts
-                # This shouldn't happen, but default to local
-                if local_line is not None:
-                    merged_lines.append(local_line)
-                elif remote_line is not None:
-                    merged_lines.append(remote_line)
+        merged_lines = perform_three_way_merge(baseline_lines, local_lines, remote_lines)
 
         # Create backup before merging
         backup_path = Path(f"{filepath}.pre_merge_backup")
@@ -576,6 +700,28 @@ def monitor_loop():
                     except Exception as e:
                         notify("LyX Sync - Merge Error",
                                f"Could not prepare merge for {Path(filepath).name}:\n{str(e)}")
+
+        # Check for Dropbox conflict files in watched directories
+        for watch_dir in state.get("watch_dirs", []):
+            try:
+                for lyx_file in Path(watch_dir).rglob("*.lyx"):
+                    if is_dropbox_conflict_file(str(lyx_file)):
+                        # Check if we already processed this conflict
+                        conflict_key = f"{lyx_file}:{lyx_file.stat().st_mtime}"
+                        if conflict_key not in state["processed_conflicts"]:
+                            state["processed_conflicts"].add(conflict_key)
+                            # Handle the conflict in a separate thread to avoid blocking
+                            threading.Thread(
+                                target=handle_dropbox_conflict,
+                                args=(str(lyx_file),),
+                                daemon=True
+                            ).start()
+            except Exception as e:
+                pass  # Ignore errors in conflict detection
+
+        # Clean up old processed conflicts (keep only recent ones)
+        if len(state["processed_conflicts"]) > 100:
+            state["processed_conflicts"] = set(list(state["processed_conflicts"])[-50:])
 
         prev_locks = dict(state["locked_files"])
         update_tray()
