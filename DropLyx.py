@@ -297,12 +297,30 @@ def is_dropbox_conflict_file(filepath):
     """
     Check if a file is a Dropbox conflict file.
     Dropbox creates files with patterns like:
-    - filename (conflicted copy 2024-01-15).lyx
-    - filename (User's conflicted copy 2024-01-15).lyx
+    - English: filename (conflicted copy 2024-01-15).lyx
+    - Italian: filename (copia in conflitto 2024-01-15).lyx
+    - German: filename (konflikt 2024-01-15).lyx
+    - Spanish: filename (copia en conflicto 2024-01-15).lyx
+    - French: filename (copie en conflit 2024-01-15).lyx
     """
     filename = Path(filepath).name
-    # Match Dropbox conflict patterns
-    pattern = r'\(.*conflicted copy.*\d{4}-\d{2}-\d{2}.*\)\.lyx$'
+    # Match Dropbox conflict patterns in multiple languages
+    # Looks for pattern with date and common conflict keywords
+    conflict_keywords = [
+        'conflicted copy',  # English
+        'copia in conflitto',  # Italian
+        'conflitto',  # Italian (short)
+        'konflikt',  # German
+        'copia en conflicto',  # Spanish
+        'conflicto',  # Spanish (short)
+        'copie en conflit',  # French
+        'conflit',  # French (short)
+        'conflict',  # Generic
+    ]
+
+    # Build pattern that matches any of the keywords followed by a date
+    keywords_pattern = '|'.join(re.escape(kw) for kw in conflict_keywords)
+    pattern = rf'\(.*({keywords_pattern}).*\d{{4}}-\d{{2}}-\d{{2}}.*\)\.lyx$'
     return bool(re.search(pattern, filename, re.IGNORECASE))
 
 
@@ -310,12 +328,14 @@ def get_original_file_from_conflict(conflict_filepath):
     """
     Get the original file path from a Dropbox conflict file.
     E.g., "file (conflicted copy 2024-01-15).lyx" -> "file.lyx"
+    Works with multiple languages (English, Italian, German, Spanish, French).
     """
     filepath = Path(conflict_filepath)
     filename = filepath.name
 
-    # Remove the conflict pattern
-    pattern = r'\s*\(.*conflicted copy.*\d{4}-\d{2}-\d{2}.*\)'
+    # Remove the conflict pattern (matches any text in parentheses with a date)
+    # This works for all languages since we just remove the entire parenthetical part
+    pattern = r'\s*\([^)]*\d{4}-\d{2}-\d{2}[^)]*\)'
     original_name = re.sub(pattern, '', filename, flags=re.IGNORECASE)
 
     original_path = filepath.parent / original_name
