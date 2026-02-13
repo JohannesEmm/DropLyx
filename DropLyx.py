@@ -64,7 +64,7 @@ def get_resource_path(relative_path):
 def create_icon(color="lightblue"):
     size = 64
     colors = {
-        "lightblue": (52, 152, 219, 255),  # Light blue - nothing open
+        "lightblue": (30, 60, 140, 255),    # Dark blue - nothing open
         "green": (46, 204, 113, 255),       # Green - editing files
         "red": (231, 76, 60, 255),          # Red - locked by others
         "orange": (243, 156, 18, 255)       # Orange - warning

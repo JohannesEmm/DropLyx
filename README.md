@@ -16,7 +16,7 @@ DropLyx is a lightweight system tray application that enables collaborative edit
 - **Merge on Save** (Optional): When enabled, automatically merges remote changes when you save, allowing you to see others' changes in LyX immediately (requires reload)
 - **Dropbox Conflict Resolution**: Automatically detects and merges Dropbox conflict files using three-way merge
 - **Visual Status Indicators**:
-  - Light Blue: Monitoring, no files open
+  - Dark Blue: Monitoring, no files open
   - Green: You're editing files (all good)
   - Red: Someone else is editing a file
 - **Desktop Notifications**: Get notified when files are locked/unlocked or when remote changes occur
@@ -96,7 +96,7 @@ See [BUILD_MACOS.md](BUILD_MACOS.md) for detailed macOS compilation instructions
    - The app will minimize to the system tray
 
 2. **Monitor Status**:
-   - Light blue icon: Ready, monitoring for LyX files
+   - Dark blue icon: Ready, monitoring for LyX files
    - Green icon: You're editing a file
    - Red icon: Someone else has a file locked
 
