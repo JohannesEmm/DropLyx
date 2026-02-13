@@ -13,6 +13,7 @@ DropLyx is a lightweight system tray application that enables collaborative edit
 - **File Locking**: Prevents conflicts by locking files while you're editing them
 - **Real-time Monitoring**: Automatically detects when you open/close LyX files
 - **Smart Auto-Merge**: Automatically merges non-conflicting changes from multiple editors
+- **Merge on Save** (Optional): When enabled, automatically merges remote changes when you save, allowing you to see others' changes in LyX immediately (requires reload)
 - **Dropbox Conflict Resolution**: Automatically detects and merges Dropbox conflict files using three-way merge
 - **Visual Status Indicators**:
   - Light Blue: Monitoring, no files open
@@ -115,8 +116,17 @@ See [BUILD_MACOS.md](BUILD_MACOS.md) for detailed macOS compilation instructions
 5. **System Tray Menu**:
    - Right-click the icon for options
    - Add/remove watched folders
+   - Toggle "Merge on Save" feature
    - Check status
    - Quit the application
+
+6. **Merge on Save** (Optional Feature):
+   - Enable this from the system tray menu
+   - When enabled, DropLyx detects when you save a file
+   - If remote changes exist, they're automatically merged into your file
+   - You'll get a notification to reload the file in LyX (File > Revert)
+   - This allows you to see collaborators' changes without closing the file
+   - **Note**: You must reload the file in LyX after each save to see the merged changes
 
 ## Configuration
 
@@ -126,7 +136,8 @@ Settings are stored in `~/.lyx_sync_config.json`:
 {
   "watch_dirs": [
     "C:\\Users\\YourName\\Dropbox\\LyX"
-  ]
+  ],
+  "merge_on_save": false
 }
 ```
 

@@ -30,8 +30,10 @@ state = {
     "my_locks": set(),
     "file_baselines": {},  # {filepath: baseline_path}
     "file_hashes": {},  # {filepath: last_known_hash}
+    "file_mtimes": {},  # {filepath: last_modification_time} for save detection
     "pending_merges": {},  # {filepath: remote_backup_path}
     "processed_conflicts": set(),  # Track processed Dropbox conflict files
+    "merge_on_save": False,  # Toggle for merge-on-save feature
     "running": True,
     "icon": None,
     "menu_needs_update": False,
@@ -120,16 +122,25 @@ def create_icon(color="lightblue"):
 
 
 def save_config():
-    CONFIG_FILE.write_text(json.dumps({"watch_dirs": state["watch_dirs"]}))
+    config = {
+        "watch_dirs": state["watch_dirs"],
+        "merge_on_save": state.get("merge_on_save", False)
+    }
+    CONFIG_FILE.write_text(json.dumps(config, indent=2))
 
 
 def load_config():
     if CONFIG_FILE.exists():
         data = json.loads(CONFIG_FILE.read_text())
+        # Handle legacy format
         if "watch_dir" in data and "watch_dirs" not in data:
-            return [data["watch_dir"]]
-        return data.get("watch_dirs", [])
-    return []
+            watch_dirs = [data["watch_dir"]]
+        else:
+            watch_dirs = data.get("watch_dirs", [])
+
+        merge_on_save = data.get("merge_on_save", False)
+        return watch_dirs, merge_on_save
+    return [], False
 
 
 def get_username():
@@ -558,6 +569,102 @@ def merge_files(filepath, local_version_path=None):
         return ('error', f'Merge error: {str(e)}')
 
 
+def perform_merge_on_save(filepath):
+    """
+    Perform a merge when a file is saved while merge-on-save is enabled.
+    Returns True if merge was performed, False otherwise.
+    """
+    baseline_path = Path(f"{filepath}{BASELINE_SUFFIX}")
+
+    # Check if we have a baseline
+    if not baseline_path.exists():
+        return False
+
+    try:
+        # Read baseline
+        with open(baseline_path, 'r', encoding='utf-8', errors='replace') as f:
+            baseline_lines = f.readlines()
+
+        # Read current file (has our local changes)
+        with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
+            local_lines = f.readlines()
+
+        # Check if baseline is different from local (we made changes)
+        if local_lines == baseline_lines:
+            # No local changes, nothing to merge
+            return False
+
+        # Check if there's a pending remote version
+        if filepath in state["pending_merges"]:
+            remote_backup_path = state["pending_merges"][filepath]
+
+            if Path(remote_backup_path).exists():
+                # Read remote version
+                with open(remote_backup_path, 'r', encoding='utf-8', errors='replace') as f:
+                    remote_lines = f.readlines()
+
+                # Perform three-way merge
+                has_conflicts, conflict_lines = detect_conflicts(baseline_lines, local_lines, remote_lines)
+                merged_lines = perform_three_way_merge(baseline_lines, local_lines, remote_lines)
+
+                if has_conflicts:
+                    # Create backups for manual resolution
+                    backup_remote = Path(f"{filepath}.remote_backup")
+                    backup_local = Path(f"{filepath}.local_backup")
+                    backup_pre = Path(f"{filepath}.pre_merge_backup")
+
+                    shutil.copy2(filepath, backup_local)
+                    shutil.copy2(remote_backup_path, backup_remote)
+                    shutil.copy2(filepath, backup_pre)
+
+                    # Write merged version anyway (may have conflict markers)
+                    with open(filepath, 'w', encoding='utf-8') as f:
+                        f.writelines(merged_lines)
+
+                    notify("Merge on Save - Conflicts Detected",
+                           f"{Path(filepath).name}\n"
+                           f"Conflicts at {len(conflict_lines)} line(s).\n"
+                           f"Please reload the file in LyX and resolve manually.")
+
+                    # Clean up remote backup
+                    try:
+                        Path(remote_backup_path).unlink()
+                    except:
+                        pass
+                    state["pending_merges"].pop(filepath, None)
+
+                    return True
+                else:
+                    # No conflicts - auto-merge successful
+                    with open(filepath, 'w', encoding='utf-8') as f:
+                        f.writelines(merged_lines)
+
+                    notify("Merge on Save - Success",
+                           f"{Path(filepath).name}\n"
+                           f"Remote changes merged successfully.\n"
+                           f"Please reload the file in LyX (File > Revert).")
+
+                    # Update baseline to merged version
+                    create_baseline(filepath)
+
+                    # Clean up remote backup
+                    try:
+                        Path(remote_backup_path).unlink()
+                    except:
+                        pass
+                    state["pending_merges"].pop(filepath, None)
+
+                    return True
+
+        return False
+
+    except Exception as e:
+        notify("Merge on Save - Error",
+               f"{Path(filepath).name}\n"
+               f"Error during merge: {str(e)}")
+        return False
+
+
 def create_lock(filepath):
     lock_file = Path(f"{filepath}{LOCK_SUFFIX}")
     if not lock_file.exists():
@@ -565,6 +672,11 @@ def create_lock(filepath):
         state["my_locks"].add(filepath)
         # Create baseline for merge tracking
         create_baseline(filepath)
+        # Initialize modification time tracking for merge-on-save
+        try:
+            state["file_mtimes"][filepath] = Path(filepath).stat().st_mtime
+        except:
+            pass
 
 
 def remove_lock(filepath):
@@ -619,6 +731,9 @@ def remove_lock(filepath):
 
         # Remove from pending merges
         state["pending_merges"].pop(filepath, None)
+
+    # Clean up modification time tracking
+    state["file_mtimes"].pop(filepath, None)
 
     # Remove baseline when done editing
     remove_baseline(filepath)
@@ -721,6 +836,27 @@ def monitor_loop():
                         notify("LyX Sync - Merge Error",
                                f"Could not prepare merge for {Path(filepath).name}:\n{str(e)}")
 
+        # Check for file saves (merge-on-save feature)
+        if state.get("merge_on_save", False):
+            for filepath in list(state["my_locks"]):
+                if Path(filepath).exists():
+                    try:
+                        current_mtime = Path(filepath).stat().st_mtime
+                        last_mtime = state["file_mtimes"].get(filepath)
+
+                        if last_mtime is not None and current_mtime > last_mtime:
+                            # File was saved (modification time changed)
+                            # Check if there are pending remote changes to merge
+                            if filepath in state["pending_merges"]:
+                                # Perform merge on save
+                                perform_merge_on_save(filepath)
+
+                            # Update the modification time
+                            state["file_mtimes"][filepath] = current_mtime
+
+                    except Exception as e:
+                        pass  # Ignore errors in save detection
+
         # Check for Dropbox conflict files in watched directories
         for watch_dir in state.get("watch_dirs", []):
             try:
@@ -802,6 +938,15 @@ def make_remove_callback(path):
     return on_remove
 
 
+def on_toggle_merge_on_save(icon, item):
+    """Toggle the merge-on-save feature"""
+    state["merge_on_save"] = not state.get("merge_on_save", False)
+    save_config()
+    status = "enabled" if state["merge_on_save"] else "disabled"
+    notify("Merge on Save", f"Merge on save is now {status}")
+    state["menu_needs_update"] = True
+
+
 def on_quit(icon, item):
     for f in list(state["my_locks"]):
         remove_lock(f)
@@ -821,6 +966,14 @@ def build_menu():
             short = str(d) if len(str(d)) < 45 else "..." + str(d)[-42:]
             items.append(pystray.MenuItem(f"  x {short}", make_remove_callback(d)))
         items.append(pystray.Menu.SEPARATOR)
+
+    # Add merge-on-save toggle
+    items.append(pystray.MenuItem(
+        "Merge on Save",
+        on_toggle_merge_on_save,
+        checked=lambda _: state.get("merge_on_save", False)
+    ))
+    items.append(pystray.Menu.SEPARATOR)
     items.append(pystray.MenuItem("Quit", on_quit))
     return tuple(items)
 
@@ -870,7 +1023,7 @@ def prompt_initial_path():
 
 
 def main():
-    dirs = load_config()
+    dirs, merge_on_save = load_config()
 
     if len(sys.argv) > 1:
         dirs = [p for p in sys.argv[1:] if Path(p).exists()]
@@ -879,6 +1032,7 @@ def main():
         dirs = [path]
 
     state["watch_dirs"] = dirs
+    state["merge_on_save"] = merge_on_save
     save_config()
 
     # Show initial notification
