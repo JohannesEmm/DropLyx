@@ -40,13 +40,13 @@ DropLyx is a lightweight system tray application that enables collaborative edit
 ### Option 1: Download Pre-built Binary
 
 **Windows:**
-1. Download the `DropLyx-windows.zip` file from the [Releases](https://github.com/yourusername/droplyx/releases) page.
+1. Download the `DropLyx-windows.zip` file from the [Releases](https://github.com/JohannesEmm/DropLyx/releases) page.
 2. Extract the entire folder to your desired location.
 3. Run `DropLyx.exe` from the extracted folder.
 
-**Linux:** Download the Linux binary or AppImage from the [Releases](https://github.com/yourusername/droplyx/releases) page.
+**Linux:** Download the Linux binary or AppImage from the [Releases](https://github.com/JohannesEmm/DropLyx/releases) page.
 
-**macOS:** Download `DropLyx.app` from the [Releases](https://github.com/yourusername/droplyx/releases) page. On first launch, you may need to right-click and select "Open" to bypass Gatekeeper.
+**macOS:** Download `DropLyx.app` from the [Releases](https://github.com/JohannesEmm/DropLyx/releases) page. On first launch, you may need to right-click and select "Open" to bypass Gatekeeper.
 
 ### Option 2: Build from Source
 
