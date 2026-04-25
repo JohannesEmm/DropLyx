@@ -27,6 +27,13 @@ if conda_lib_bin and os.path.exists(conda_lib_bin):
         if os.path.exists(dll_path):
             binaries.append((dll_path, '.'))
 
+# Bundle python3xx.dll and python3.dll so the exe runs without a Python install
+if sys.platform == 'win32':
+    for py_dll in ['python312.dll', 'python311.dll', 'python310.dll', 'python3.dll']:
+        py_dll_path = os.path.join(sys.prefix, py_dll)
+        if os.path.exists(py_dll_path):
+            binaries.append((py_dll_path, '.'))
+
 a = Analysis(
     ['DropLyx.py'],
     pathex=[],
